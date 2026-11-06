@@ -1,0 +1,40 @@
+- name: Deploy website ke k3s
+  hosts: k3s
+  vars:
+    image_tag: latest
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'HOME') }}/.kube/config"
+  tasks:
+    - name: Pastikan k3s menyala
+      become: true
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+
+    - name: Tunggu node siap
+      ansible.builtin.command: kubectl wait --for=condition=Ready node --all --timeout=120s
+      changed_when: false
+
+    - name: Isi template manifest dengan versi image
+      ansible.builtin.template:
+        src: ../k8s/website.yaml.j2
+        dest: /tmp/website.yaml
+        mode: "0644"
+
+    - name: Terapkan manifest
+      ansible.builtin.command: kubectl apply -f /tmp/website.yaml
+      register: hasil_apply
+      changed_when: "'created' in hasil_apply.stdout or 'configured' in hasil_apply.stdout"
+
+    - name: Tunggu rolling update selesai
+      ansible.builtin.command: kubectl rollout status deployment/website -n website --timeout=180s
+      changed_when: false
+
+    - name: Ambil daftar pod
+      ansible.builtin.command: kubectl get pods -n website -o custom-columns=POD:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
+      register: daftar_pod
+      changed_when: false
+
+    - name: Tampilkan pod
+      ansible.builtin.debug:
+        var: daftar_pod.stdout_lines
