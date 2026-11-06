@@ -13,23 +13,27 @@ Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keam
 ## Arsitektur
 
 ```mermaid
-flowchart LR
+flowchart TB
     dev["Developer<br/>git push"] --> gh["GitHub"]
-    gh --> ci["GitHub Actions"]
+    gh --> CI
 
-    subgraph CI["Pipeline CI (setiap push)"]
+    subgraph CI["Pipeline CI di GitHub Actions (setiap push)"]
+        direction LR
         g1["Gerbang 1<br/>Gitleaks: cek rahasia"] --> b["Build image"]
-        b --> g2["Gerbang 2<br/>Trivy: cek celah HIGH/CRITICAL"]
+        b --> g2["Gerbang 2<br/>Trivy: cek celah"]
         g2 --> g3["Gerbang 3<br/>uji halaman"]
     end
 
-    ci --> g1
-    g3 --> reg[("GHCR<br/>tag = commit SHA")]
-    reg --> ans["Ansible<br/>deploy.yml"]
-    ans --> k3s["Kubernetes (k3s)<br/>namespace website"]
-    k3s --> mon["Prometheus + Grafana"]
+    CI --> reg[("GHCR<br/>tag = commit SHA")]
 
-    tofu["OpenTofu"] -.-> os["OpenStack (DevStack)"]
+    subgraph CD["Deploy dan pemantauan"]
+        direction LR
+        ans["Ansible<br/>deploy.yml"] --> k3s["Kubernetes (k3s)<br/>namespace website"]
+        k3s --> mon["Prometheus<br/>+ Grafana"]
+    end
+
+    reg --> ans
+    tofu["OpenTofu"] -.-> os["OpenStack<br/>(DevStack)"]
 ```
 
 | Tahap | Alat | Fungsi |
@@ -49,7 +53,7 @@ flowchart LR
 
 | Pemeriksaan | Sebelum | Sesudah | Cara |
 | --- | --- | --- | --- |
-| Rahasia di riwayat Git (Gitleaks) | | 0 kebocoran | `.gitignore`, password di `.env` dan `clouds.yaml` di luar repository |
+| Rahasia di riwayat Git (Gitleaks) | - | 0 kebocoran | `.gitignore`, password di `.env` dan `clouds.yaml` di luar repository |
 | Celah HIGH/CRITICAL image (Trivy) | 66 | 0 | Base image Debian diganti Alpine |
 | Celah yang ditangkap gerbang CI | 6 (1 CRITICAL) | 0 | `apk upgrade` saat build |
 | Temuan konfigurasi Dockerfile | 2 | 0 | `USER` non-root dan `HEALTHCHECK` |
