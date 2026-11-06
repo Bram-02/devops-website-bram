@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/bram-02/devops-website-bram
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ambil kode (seluruh riwayat)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gerbang 1 - cek rahasia (Gitleaks)
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest detect --source=/repo -v
+
+      - name: Build image
+        run: docker build -t $IMAGE:${{ github.sha }} ./app
+
+      - name: Gerbang 2 - cek celah (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --timeout 15m --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            $IMAGE:${{ github.sha }}
+
+      - name: Gerbang 3 - uji halaman
+        run: |
+          docker run -d --name uji -p 8080:8080 $IMAGE:${{ github.sha }}
+          sleep 3
+          curl -sf http://localhost:8080 | grep -i "<title>"
+
+      - name: Login ke GHCR
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push image ke GHCR
+        if: github.event_name == 'push'
+        run: |
+          docker tag $IMAGE:${{ github.sha }} $IMAGE:latest
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
