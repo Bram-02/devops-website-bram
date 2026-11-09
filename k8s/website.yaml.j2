@@ -95,3 +95,22 @@ data:
     <h1>Info Website Bram</h1>
     <p>Versi konfigurasi: 2</p>
     </body></html>
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: website
+  namespace: website
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: website.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: website
+                port:
+                  number: 80
