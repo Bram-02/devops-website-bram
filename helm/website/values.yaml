@@ -1,0 +1,13 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/bram-02/devops-website-bram
+  tag: ""
+host: helm.website.localhost
+infoVersi: "1"
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 64Mi

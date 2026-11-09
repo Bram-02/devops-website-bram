@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-info
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html><body>
+    <h1>Info Website Bram (Helm)</h1>
+    <p>Versi konfigurasi: {{ .Values.infoVersi }}</p>
+    </body></html>
