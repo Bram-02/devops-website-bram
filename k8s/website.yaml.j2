@@ -61,9 +61,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: info
+              mountPath: /usr/share/nginx/html/info
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: info
+          configMap:
+            name: website-info
 ---
 apiVersion: v1
 kind: Service
@@ -76,3 +82,16 @@ spec:
   ports:
     - port: 80
       targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: website-info
+  namespace: website
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html><body>
+    <h1>Info Website Bram</h1>
+    <p>Versi konfigurasi: 2</p>
+    </body></html>
