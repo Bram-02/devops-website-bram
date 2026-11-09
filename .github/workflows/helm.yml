@@ -1,0 +1,37 @@
+name: Helm chart
+
+on:
+  push:
+    branches: [main]
+    paths: ["helm/**", ".github/workflows/helm.yml"]
+  pull_request:
+    paths: ["helm/**", ".github/workflows/helm.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  cek-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      - name: Pasang Helm
+        uses: azure/setup-helm@v4
+
+      - name: Gerbang 1 - helm lint
+        run: helm lint helm/website --set image.tag=ci
+
+      - name: Gerbang 2 - chart wajib menolak tanpa image.tag
+        run: |
+          if helm template website helm/website > /dev/null 2>&1; then
+            echo "GAGAL: chart bisa dirender tanpa image.tag"
+            exit 1
+          fi
+          echo "OK: chart menolak deploy tanpa image.tag"
+
+      - name: Gerbang 3 - Trivy cek konfigurasi chart
+        run: |
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config \
+            --helm-set image.tag=ci --severity HIGH,CRITICAL --exit-code 1 /repo/helm/website
