@@ -12,13 +12,13 @@ permissions:
 
 jobs:
   cek-chart:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Ambil kode
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Pasang Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Gerbang 1 - helm lint
         run: helm lint helm/website --set image.tag=ci

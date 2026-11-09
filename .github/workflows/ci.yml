@@ -14,10 +14,10 @@ env:
 
 jobs:
   build-scan-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Ambil kode (seluruh riwayat)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
