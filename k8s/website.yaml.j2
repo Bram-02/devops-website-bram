@@ -114,3 +114,13 @@ spec:
                 name: website
                 port:
                   number: 80
+    - host: website.bram.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: website
+                port:
+                  number: 80
