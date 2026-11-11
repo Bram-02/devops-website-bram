@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: ghcr.io/bram-02/devops-website-bram
   tag: ""
