@@ -3,9 +3,9 @@
 ![CI](https://github.com/Bram-02/devops-website-bram/actions/workflows/ci.yml/badge.svg)
 ![Helm chart](https://github.com/Bram-02/devops-website-bram/actions/workflows/helm.yml/badge.svg)
 
-Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat Ingress (Traefik), dijaga readiness dan liveness probe, isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI. Kondisi server dipantau dengan Prometheus dan Grafana, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
+Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager, dijaga readiness dan liveness probe, isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
 
-> **English summary:** End-to-end DevOps project. Every `git push` runs a GitHub Actions pipeline with three gates (Gitleaks secret scan, Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress. The same manifests are packaged as a Helm chart, validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, and a Trivy config scan). Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
+> **English summary:** End-to-end DevOps project. Every `git push` runs a GitHub Actions pipeline with three gates (Gitleaks secret scan, Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook). The same manifests are packaged as a Helm chart, validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, and a Trivy config scan), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
 
 **Penyusun:** Bram Naibaho, D3 Teknologi Komputer, Institut Teknologi Del
 
@@ -35,8 +35,9 @@ flowchart TB
     end
 
     reg --> ans
-    user["Pengguna<br/>website.bram.test"] --> ing["Ingress<br/>Traefik"]
+    user["Pengguna<br/>https://website.bram.test"] --> ing["Ingress Traefik<br/>HTTPS"]
     ing --> k3s
+    cm["cert-manager<br/>CA lab"] -.sertifikat.-> ing
     tofu["OpenTofu"] -.-> os["OpenStack<br/>(DevStack)"]
 ```
 
@@ -51,7 +52,8 @@ flowchart TB
 | Ketahanan | Readiness dan liveness probe | Versi yang rusak tertahan saat rolling update, container macet di-restart otomatis |
 | Konfigurasi | ConfigMap | Isi halaman `/info/` berubah tanpa build image dan tanpa restart pod |
 | Akses | Ingress (Traefik) | Website dibuka lewat nama alamat, tanpa `port-forward` |
-| Paket | Helm | Chart dengan `values.yaml`, riwayat revisi, dan rollback; diperiksa di CI |
+| HTTPS | cert-manager, CA lab | Sertifikat diterbitkan otomatis dari anotasi Ingress, berlaku 90 hari, diperpanjang otomatis |
+| Paket | Helm, Argo CD | Chart dengan `values.yaml`, riwayat revisi, dan rollback; diperiksa di CI; bisa di-deploy GitOps oleh Argo CD |
 | Monitoring | Prometheus, node-exporter, Grafana | Data source dan dashboard dipasang otomatis dari file |
 | Infrastruktur | OpenTofu, OpenStack | Contoh membuat instance di private cloud dari kode |
 
@@ -82,11 +84,14 @@ Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkun
 ├── app/
 │   ├── Dockerfile                  # nginx tanpa root, port 8080, HEALTHCHECK
 │   └── index.html
-├── k8s/website.yaml.j2             # Deployment (probe), Service, ConfigMap, Ingress; versi image diisi Ansible
+├── k8s/
+│   ├── website.yaml.j2             # Deployment (probe), Service, ConfigMap, Ingress + TLS; versi image diisi Ansible
+│   └── cluster-issuer.yaml         # ClusterIssuer cert-manager (CA lab)
 ├── helm/website/                   # Helm chart: Chart.yaml, values.yaml, templates/
 ├── ansible/
 │   ├── inventory.ini
-│   └── deploy.yml                  # Nyalakan k3s, isi template, apply, tunggu rollout
+│   ├── platform.yml                # Lapisan platform: cert-manager, CA lab, ClusterIssuer
+│   └── deploy.yml                  # Lapisan aplikasi: nyalakan k3s, isi template, apply, tunggu rollout
 ├── monitoring/
 │   ├── compose.yaml                # node-exporter, Prometheus, Grafana
 │   ├── prometheus.yml
@@ -112,7 +117,41 @@ curl -s http://localhost:8080 | grep "<title>"
 docker rm -f uji
 ```
 
-### 2. Deploy ke Kubernetes (versi tertentu)
+### 2. Platform: HTTPS dengan cert-manager
+
+Buat CA lab sekali saja, di luar repository. CA ini dibatasi (*name constraints*) hanya untuk `bram.test`, sehingga tidak bisa dipakai memalsukan situs lain:
+
+```bash
+mkdir -p ~/lab-ca && chmod 700 ~/lab-ca && cd ~/lab-ca
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 365 \
+  -subj "/CN=Bram Lab CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -addext "nameConstraints=critical,permitted;DNS:bram.test"
+chmod 600 ca.key
+```
+
+Pasang cert-manager, Secret CA, dan ClusterIssuer (idempoten):
+
+```bash
+cd ansible
+ansible-playbook -i inventory.ini platform.yml
+```
+
+Agar browser Windows percaya, impor `ca.crt` (bukan `ca.key`) ke daftar CA akun Windows, dan cocokkan thumbprint dengan `openssl x509 -in ~/lab-ca/ca.crt -noout -fingerprint -sha1` sebelum menyetujui:
+
+```bash
+cp ~/lab-ca/ca.crt /mnt/c/Users/<user>/Downloads/bram-lab-ca.crt
+powershell.exe -NoProfile -Command 'Import-Certificate -FilePath "$env:USERPROFILE\Downloads\bram-lab-ca.crt" -CertStoreLocation Cert:\CurrentUser\Root'
+```
+
+Setelah selesai berlatih, hapus lagi CA ini dari Windows:
+
+```bash
+powershell.exe -NoProfile -Command 'Get-ChildItem Cert:\CurrentUser\Root | Where-Object Subject -eq "CN=Bram Lab CA" | Remove-Item'
+```
+
+### 3. Deploy ke Kubernetes (versi tertentu)
 
 Setiap image di GHCR diberi tag commit SHA. Deploy versi commit terakhir:
 
@@ -123,7 +162,7 @@ curl -s http://website.localhost/ | grep "<title>"
 curl -s http://website.localhost/info/
 ```
 
-Website dilayani Ingress Traefik bawaan k3s. Untuk membukanya dari browser Windows (WSL2), arahkan `website.bram.test` ke IP WSL di file hosts Windows. IP-nya terlihat di kolom EXTERNAL-IP:
+Website dilayani Ingress Traefik bawaan k3s; `https://website.bram.test` memakai sertifikat dari cert-manager. Untuk membukanya dari browser Windows (WSL2), arahkan `website.bram.test` ke IP WSL di file hosts Windows. IP-nya terlihat di kolom EXTERNAL-IP:
 
 ```bash
 kubectl get svc -n kube-system traefik
@@ -134,7 +173,7 @@ kubectl get svc -n kube-system traefik
 <EXTERNAL-IP>    website.bram.test
 ```
 
-### 3. Rollback
+### 4. Rollback
 
 Kembali ke versi sebelumnya cukup dengan mengganti tag:
 
@@ -144,7 +183,7 @@ ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git rev-parse HEA
 
 Kubernetes mengganti pod secara bertahap (rolling update), jadi website tidak mati selama pergantian. Readiness probe memastikan pod lama baru dimatikan setelah pod baru benar-benar siap.
 
-### 3b. Alternatif: deploy dengan Helm
+### 4b. Alternatif: deploy dengan Helm
 
 ```bash
 helm install website helm/website -n website-helm --create-namespace \
@@ -155,9 +194,13 @@ helm rollback website 1 -n website-helm --wait
 helm uninstall website -n website-helm
 ```
 
-Chart menolak dipasang tanpa `image.tag`, supaya tidak ada deploy tanpa versi yang jelas.
+Chart menolak dipasang tanpa `image.tag`, supaya tidak ada deploy tanpa versi yang jelas. Untuk cluster tanpa ingress controller, Ingress bisa dimatikan dengan `--set ingress.enabled=false` (chart 0.2.0).
 
-### 4. Monitoring
+### 4c. Alternatif: GitOps dengan Argo CD
+
+Chart yang sama di-deploy oleh Argo CD dari repository ini, dengan pola *app of apps* (Application `root` dipasang OpenTofu, Application lain cukup berupa file YAML di Git). Contohnya ada di repository [latihan-devops](https://github.com/Bram-02/latihan-devops), folder `week11/`.
+
+### 5. Monitoring
 
 ```bash
 cd monitoring
@@ -169,7 +212,7 @@ docker compose up -d
 - Grafana: `http://localhost:3000` (user `admin`), dashboard **Node Exporter Full** langsung tersedia
 - Prometheus: `http://localhost:9090/targets`
 
-### 5. Infrastruktur OpenStack (opsional)
+### 6. Infrastruktur OpenStack (opsional)
 
 Membutuhkan OpenStack (misalnya DevStack) dan kredensial di `~/.config/openstack/clouds.yaml`, yang tidak disimpan di repository.
 
@@ -190,6 +233,8 @@ tofu apply
 - **Readiness dan liveness probe.** Kubernetes tidak memakai `HEALTHCHECK` dari Dockerfile, jadi kesehatan pod diperiksa dengan probe. Saat diuji dengan probe yang sengaja dirusak, rolling update berhenti dan versi lama tetap melayani (HTTP 200).
 - **Konfigurasi terpisah dari image.** ConfigMap dipasang sebagai volume sehingga perubahan isinya sampai ke pod tanpa restart. Secret tidak pernah ditulis di Git, karena isinya hanya di-encode base64, bukan dienkripsi.
 - **Versi dikunci.** Runner CI memakai `ubuntu-24.04`, bukan `ubuntu-latest`, dan action memakai versi mayor yang jelas, supaya pipeline tidak berubah tanpa disadari.
+- **HTTPS dengan CA lab yang dibatasi.** Domain `.test` tidak bisa memakai Let's Encrypt, jadi dipakai CA sendiri dengan *name constraints* `bram.test`, kunci CA berizin 600 di luar repository, dan dipercaya hanya di akun Windows pengguna. Mekanismenya sama dengan production: cert-manager menerbitkan dan memperpanjang sertifikat dari anotasi Ingress.
+- **Platform terpisah dari aplikasi.** `platform.yml` (cert-manager, CA, ClusterIssuer) jarang berubah, sedangkan `deploy.yml` (website) sering berubah. Keduanya idempoten: run kedua `changed=0`.
 - **Semua sebagai kode.** Manifest, playbook, konfigurasi monitoring, data source, dan dashboard Grafana disimpan di Git; rahasia tidak.
 
 ---
@@ -204,6 +249,8 @@ tofu apply
 | Website tidak bisa dibuka dari browser Windows | WSL hanya meneruskan `localhost` untuk program yang LISTEN, sedangkan port 80 Traefik dibuat lewat iptables (dibuktikan dengan `ss -tlnp` dan `curl.exe`) | Nama `website.bram.test` di file hosts Windows diarahkan ke IP WSL, ditambahkan sebagai host kedua di Ingress |
 | Baris baru di file hosts menempel ke baris sebelumnya | Baris terakhir file tidak diakhiri newline | Cadangkan file, rapikan di Notepad, akhiri file dengan baris baru |
 | Peringatan Node.js 20 dan `ubuntu-latest` di GitHub Actions | Action versi lama dan label runner yang berpindah versi | Naikkan ke `actions/checkout@v5` dan `azure/setup-helm@v5`, kunci runner ke `ubuntu-24.04` |
+| kubectl mencoba `localhost:8080` setelah latihan kind | kind ikut menulis ke `~/.kube/config` lalu meninggalkan `current-context` kosong saat dihapus | Pulihkan dari `/etc/rancher/k3s/k3s.yaml`, simpan cadangan, dan pakai kubeconfig terpisah untuk cluster lain |
+| `curl.exe` di Windows: `CRYPT_E_NO_REVOCATION_CHECK` | CA lab tidak menyediakan informasi pencabutan (CRL/OCSP) | Rantai kepercayaan terbukti benar dengan `--ssl-no-revoke`; browser menerima sertifikat |
 | Instance OpenStack tidak bisa menyala | Virtualisasi bersarang tidak tersedia setelah WSL2 aktif | Nova diubah ke mode QEMU dengan playbook Ansible; latihan memakai image CirrOS yang kecil |
 
 ---
