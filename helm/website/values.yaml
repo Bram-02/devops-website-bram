@@ -11,3 +11,5 @@ resources:
   limits:
     cpu: 200m
     memory: 64Mi
+ingress:
+  enabled: true
