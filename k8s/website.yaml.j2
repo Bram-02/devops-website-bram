@@ -100,9 +100,15 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: website
+  annotations:
+    cert-manager.io/cluster-issuer: lab-ca
   namespace: website
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - website.bram.test
+      secretName: website-tls
   rules:
     - host: website.localhost
       http:
