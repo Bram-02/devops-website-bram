@@ -21,10 +21,21 @@
         dest: /tmp/website.yaml
         mode: "0644"
 
+    - name: Cek perbedaan manifest dengan cluster
+      ansible.builtin.command: kubectl diff -f /tmp/website.yaml
+      register: hasil_diff
+      changed_when: false
+      failed_when: false
+
+    - name: Tampilkan perbedaan (atau error diff)
+      ansible.builtin.debug:
+        msg: "{{ hasil_diff.stdout_lines if hasil_diff.rc == 1 else hasil_diff.stderr_lines }}"
+      when: hasil_diff.rc != 0
+
     - name: Terapkan manifest
       ansible.builtin.command: kubectl apply -f /tmp/website.yaml
-      register: hasil_apply
-      changed_when: "'created' in hasil_apply.stdout or 'configured' in hasil_apply.stdout"
+      when: hasil_diff.rc != 0
+      changed_when: true
 
     - name: Tunggu rolling update selesai
       ansible.builtin.command: kubectl rollout status deployment/website -n website --timeout=180s
