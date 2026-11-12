@@ -169,3 +169,14 @@ spec:
         target:
           type: Utilization
           averageUtilization: 50
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: website
+  namespace: website
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: website
