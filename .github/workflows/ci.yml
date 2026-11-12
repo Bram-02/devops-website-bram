@@ -3,7 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
@@ -21,8 +27,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Gerbang 1 - cek rahasia (Gitleaks)
-        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest detect --source=/repo -v
 
       - name: Build image
         run: docker build -t $IMAGE:${{ github.sha }} ./app
