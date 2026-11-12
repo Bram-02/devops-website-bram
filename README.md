@@ -159,7 +159,7 @@ Setiap image di GHCR diberi tag commit SHA. Deploy versi commit terakhir:
 
 ```bash
 cd ansible
-ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git rev-parse HEAD)
+ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git log -1 --format=%H -- app/)
 curl -s http://website.localhost/ | grep "<title>"
 curl -s http://website.localhost/info/
 curl -sI http://website.bram.test/ | head -3      # 301, Location: https://website.bram.test/
@@ -202,7 +202,7 @@ usir "$P1"; usir "$P2"     # pertama 201 Success, kedua 429 TooManyRequests
 Kembali ke versi sebelumnya cukup dengan mengganti tag:
 
 ```bash
-ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git rev-parse HEAD~1)
+ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git log -2 --format=%H -- app/ | tail -n 1)
 ```
 
 Kubernetes mengganti pod secara bertahap (rolling update), jadi website tidak mati selama pergantian. Readiness probe memastikan pod lama baru dimatikan setelah pod baru benar-benar siap.
@@ -211,8 +211,8 @@ Kubernetes mengganti pod secara bertahap (rolling update), jadi website tidak ma
 
 ```bash
 helm install website helm/website -n website-helm --create-namespace \
-  --set image.tag=$(git rev-parse HEAD) --wait
-helm upgrade website helm/website -n website-helm --set image.tag=$(git rev-parse HEAD) --set replicaCount=3 --wait
+  --set image.tag=$(git log -1 --format=%H -- app/) --wait
+helm upgrade website helm/website -n website-helm --set image.tag=$(git log -1 --format=%H -- app/) --set replicaCount=3 --wait
 helm history website -n website-helm
 helm rollback website 1 -n website-helm --wait
 helm uninstall website -n website-helm
