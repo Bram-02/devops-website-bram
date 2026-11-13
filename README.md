@@ -1,11 +1,12 @@
 # DevOps Website Bram
 
 ![CI](https://github.com/Bram-02/devops-website-bram/actions/workflows/ci.yml/badge.svg)
+![Secrets](https://github.com/Bram-02/devops-website-bram/actions/workflows/secrets.yml/badge.svg)
 ![Helm chart](https://github.com/Bram-02/devops-website-bram/actions/workflows/helm.yml/badge.svg)
 
-Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
+Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, jaringannya dibatasi NetworkPolicy (hanya Traefik yang boleh masuk, tidak ada koneksi keluar), isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
 
-> **English summary:** End-to-end DevOps project. Every `git push` runs a GitHub Actions pipeline with three gates (Gitleaks secret scan, Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). The same manifests are packaged as a Helm chart, validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, and a Trivy config scan), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
+> **English summary:** End-to-end DevOps project. Every `git push` runs a Gitleaks secret scan; pushes that change the application run a GitHub Actions pipeline (Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Deploys use the tag of the last commit that touched `app/`, so documentation or manifest changes never rebuild the image or restart pods, and the playbook uses `kubectl diff` to report real changes only and to repair drift. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). NetworkPolicies deny all traffic by default: only the Traefik ingress controller may reach the pods, and the pods cannot open outbound connections. The same manifests are packaged as a Helm chart, validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, and a Trivy config scan), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
 
 **Penyusun:** Bram Naibaho, D3 Teknologi Komputer, Institut Teknologi Del
 
@@ -16,13 +17,13 @@ Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keam
 ```mermaid
 flowchart TB
     dev["Developer<br/>git push"] --> gh["GitHub"]
+    gh --> g1["Gerbang 1: workflow Secrets<br/>Gitleaks, setiap push"]
     gh --> CI
     gh --> HC["Workflow Helm chart<br/>lint, tag wajib, Trivy config"]
 
-    subgraph CI["Pipeline CI di GitHub Actions (setiap push)"]
+    subgraph CI["Pipeline CI (hanya saat app/ atau ci.yml berubah)"]
         direction LR
-        g1["Gerbang 1<br/>Gitleaks: cek rahasia"] --> b["Build image"]
-        b --> g2["Gerbang 2<br/>Trivy: cek celah"]
+        b["Build image"] --> g2["Gerbang 2<br/>Trivy: cek celah"]
         g2 --> g3["Gerbang 3<br/>uji halaman"]
     end
 
@@ -30,7 +31,7 @@ flowchart TB
 
     subgraph CD["Deploy dan pemantauan"]
         direction LR
-        ans["Ansible deploy.yml<br/>atau Helm chart"] --> k3s["Kubernetes (k3s)<br/>probe, ConfigMap, HPA, PDB"]
+        ans["Ansible deploy.yml<br/>atau Helm chart"] --> k3s["Kubernetes (k3s)<br/>probe, ConfigMap, HPA, PDB,<br/>NetworkPolicy"]
         k3s --> mon["Prometheus<br/>+ Grafana"]
     end
 
@@ -44,7 +45,7 @@ flowchart TB
 | Tahap | Alat | Fungsi |
 | --- | --- | --- |
 | Kode | Git, GitHub | Semua kode, konfigurasi, dan dashboard disimpan di repository ini |
-| CI | GitHub Actions | Build dan uji otomatis setiap `git push` |
+| CI | GitHub Actions | Cek rahasia di setiap `git push`; build dan uji image hanya saat kode aplikasi berubah |
 | Keamanan | Gitleaks, Trivy | Pipeline gagal kalau ada rahasia bocor atau celah HIGH/CRITICAL yang bisa diperbaiki |
 | Container | Docker, nginx-unprivileged | Website berjalan tanpa root, di port 8080, dengan HEALTHCHECK |
 | Registry | GitHub Container Registry | Image disimpan dengan tag `latest` dan tag commit SHA |
@@ -55,6 +56,7 @@ flowchart TB
 | HTTPS | cert-manager, CA lab, Middleware Traefik | Sertifikat diterbitkan otomatis dari anotasi Ingress, berlaku 90 hari, diperpanjang otomatis; HTTP dialihkan ke HTTPS (301) |
 | Skala | HorizontalPodAutoscaler | 2 sampai 5 pod mengikuti beban CPU (target 50% dari requests) |
 | Ketersediaan | PodDisruptionBudget | Minimal 1 pod tetap melayani saat drain atau upgrade node |
+| Jaringan | NetworkPolicy | Tolak semua secara default; hanya Traefik yang boleh masuk ke port 8080, pod tidak boleh membuka koneksi keluar |
 | Paket | Helm, Argo CD | Chart dengan `values.yaml`, riwayat revisi, dan rollback; diperiksa di CI; bisa di-deploy GitOps oleh Argo CD |
 | Monitoring | Prometheus, node-exporter, Grafana | Data source dan dashboard dipasang otomatis dari file |
 | Infrastruktur | OpenTofu, OpenStack | Contoh membuat instance di private cloud dari kode |
@@ -71,6 +73,7 @@ flowchart TB
 | Temuan konfigurasi Dockerfile | 2 | 0 | `USER` non-root dan `HEALTHCHECK` |
 | Temuan konfigurasi Kubernetes | 19 | 1 | securityContext, batas CPU/RAM, namespace sendiri |
 | Temuan HIGH/CRITICAL di Helm chart | - | 0 | Diperiksa Trivy di workflow Helm chart setiap ada perubahan chart |
+| Akses jaringan ke pod website | Semua pod di cluster | Hanya Traefik | NetworkPolicy; diuji dengan pod dari namespace lain dan pod yang menyamar dengan label Traefik |
 
 Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkungan lab. Di lingkungan perusahaan, image disimpan di registry privat yang diizinkan.
 
@@ -81,19 +84,20 @@ Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkun
 ```
 .
 ├── .github/workflows/
-│   ├── ci.yml                      # Pipeline CI: Gitleaks, build, Trivy, uji, push ke GHCR
+│   ├── secrets.yml                 # Gitleaks di setiap push
+│   ├── ci.yml                      # Hanya saat app/ berubah: build, Trivy, uji, push ke GHCR
 │   └── helm.yml                    # Gerbang chart: helm lint, tag wajib, Trivy config
 ├── app/
 │   ├── Dockerfile                  # nginx tanpa root, port 8080, HEALTHCHECK
 │   └── index.html
 ├── k8s/
-│   ├── website.yaml.j2             # Deployment, Service, ConfigMap, Middleware, Ingress + TLS, HPA, PDB; versi image diisi Ansible
+│   ├── website.yaml.j2             # Deployment, Service, ConfigMap, Middleware, Ingress + TLS, HPA, PDB, NetworkPolicy
 │   └── cluster-issuer.yaml         # ClusterIssuer cert-manager (CA lab)
 ├── helm/website/                   # Helm chart: Chart.yaml, values.yaml, templates/
 ├── ansible/
 │   ├── inventory.ini
 │   ├── platform.yml                # Lapisan platform: cert-manager, CA lab, ClusterIssuer
-│   └── deploy.yml                  # Lapisan aplikasi: nyalakan k3s, isi template, apply, tunggu rollout
+│   └── deploy.yml                  # Lapisan aplikasi: nyalakan k3s, isi template, kubectl diff, apply bila beda, tunggu rollout
 ├── monitoring/
 │   ├── compose.yaml                # node-exporter, Prometheus, Grafana
 │   ├── prometheus.yml
@@ -155,9 +159,11 @@ powershell.exe -NoProfile -Command 'Get-ChildItem Cert:\CurrentUser\Root | Where
 
 ### 3. Deploy ke Kubernetes (versi tertentu)
 
-Setiap image di GHCR diberi tag commit SHA. Deploy versi commit terakhir:
+Setiap image di GHCR diberi tag commit SHA. Yang di-deploy adalah commit terakhir yang mengubah `app/`, dan image-nya dicek dulu di registry (CI butuh beberapa menit setelah push):
 
 ```bash
+TAG=$(git log -1 --format=%H -- app/)
+docker manifest inspect ghcr.io/bram-02/devops-website-bram:$TAG > /dev/null && echo "image ada"
 cd ansible
 ansible-playbook -i inventory.ini deploy.yml -K -e image_tag=$(git log -1 --format=%H -- app/)
 curl -s http://website.localhost/ | grep "<title>"
@@ -261,6 +267,9 @@ tofu apply
 - **HTTP dipaksa ke HTTPS, per Ingress.** Middleware Traefik `redirectScheme` berlaku untuk semua host di satu Ingress, jadi Ingress dipisah: `website` (website.bram.test, TLS, redirect) dan `website-local` (website.localhost, HTTP). Nama `website` dipertahankan karena Certificate `website-tls` dimiliki Ingress itu.
 - **Satu objek, satu pemilik: replika dipegang HPA.** `replicas` dihapus dari Deployment supaya setiap deploy tidak menimpa keputusan HPA. HPA naik cepat dan turun lambat (stabilization window 5 menit) untuk mencegah flapping.
 - **PDB untuk gangguan yang disengaja.** `minAvailable: 1` membuat drain atau upgrade mengusir pod satu per satu dan menunggu pengganti siap. PDB tidak menahan `kubectl delete pod` atau node yang mati mendadak; untuk itu tetap dibutuhkan lebih dari satu replika.
+- **NetworkPolicy: tolak semua, buka yang perlu.** `tolak-semua-masuk` dan `tolak-semua-keluar` berlaku untuk seluruh namespace; `izinkan-traefik` hanya membuka port 8080 untuk pod Traefik di `kube-system` (namespaceSelector DAN podSelector dalam satu item, sehingga label palsu di namespace lain tetap ditolak). Website statis tidak butuh koneksi keluar, jadi Egress ditutup total; aplikasi yang butuh DNS harus membuka port 53 ke kube-dns.
+- **Image hanya dibangun saat aplikasi berubah, rahasia tetap dicek setiap push.** Gitleaks dipisah ke `secrets.yml` tanpa filter, sedangkan `ci.yml` memakai `paths` (`app/**`, `ci.yml`). Deploy dan rollback memakai `git log -1 --format=%H -- app/`, sehingga perubahan README, manifest, atau playbook tidak mengganti pod.
+- **Idempotensi yang jujur.** `deploy.yml` menjalankan `kubectl diff` dulu: kode 0 berarti apply dilewati (`changed=0`), kode 1 berarti perbedaan dicetak ke log lalu di-apply. Perubahan manual di cluster (drift) terdeteksi dan dipulihkan.
 - **Platform terpisah dari aplikasi.** `platform.yml` (cert-manager, CA, ClusterIssuer) jarang berubah, sedangkan `deploy.yml` (website) sering berubah. Keduanya idempoten: run kedua `changed=0`.
 - **Semua sebagai kode.** Manifest, playbook, konfigurasi monitoring, data source, dan dashboard Grafana disimpan di Git; rahasia tidak.
 
@@ -279,6 +288,9 @@ tofu apply
 | kubectl mencoba `localhost:8080` setelah latihan kind | kind ikut menulis ke `~/.kube/config` lalu meninggalkan `current-context` kosong saat dihapus | Pulihkan dari `/etc/rancher/k3s/k3s.yaml`, simpan cadangan, dan pakai kubeconfig terpisah untuk cluster lain |
 | `curl.exe` di Windows: `CRYPT_E_NO_REVOCATION_CHECK` | CA lab tidak menyediakan informasi pencabutan (CRL/OCSP) | Rantai kepercayaan terbukti benar dengan `--ssl-no-revoke`; browser menerima sertifikat |
 | Replika sempat turun ke 1 saat HPA dipasang | `replicas` dihapus dari manifest; `kubectl apply` menghapus field itu dan Kubernetes memakai nilai bawaan 1 sampai HPA menaikkannya lagi ke 2 | Di production, lepas kepemilikan field dulu dengan `kubectl apply set-last-applied` atau `edit-last-applied` sebelum menghapus `replicas` |
+| Ingress 502 setelah NetworkPolicy tolak semua, padahal pod 1/1 | Traefik ikut diblokir; probe tetap lulus karena dikirim kubelet dari node | Tambah `izinkan-traefik`; 502 dengan pod sehat adalah tanda untuk memeriksa NetworkPolicy |
+| Commit README memicu build image dan rolling update | CI berjalan di setiap push dan deploy memakai tag HEAD | `paths` di `ci.yml`, Gitleaks dipisah ke `secrets.yml`, tag deploy dari commit terakhir yang mengubah `app/` |
+| Playbook selalu `changed=1` | `kubectl apply` selalu melaporkan PDB `configured` (selector memakai patchStrategy replace), padahal `resourceVersion` tidak berubah | `kubectl diff` menentukan ada tidaknya perubahan |
 | Instance OpenStack tidak bisa menyala | Virtualisasi bersarang tidak tersedia setelah WSL2 aktif | Nova diubah ke mode QEMU dengan playbook Ansible; latihan memakai image CirrOS yang kecil |
 
 ---
