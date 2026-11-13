@@ -3,9 +3,9 @@ name: Helm chart
 on:
   push:
     branches: [main]
-    paths: ["helm/**", ".github/workflows/helm.yml"]
+    paths: ["helm/**", ".github/workflows/helm.yml", ".github/scripts/**"]
   pull_request:
-    paths: ["helm/**", ".github/workflows/helm.yml"]
+    paths: ["helm/**", ".github/workflows/helm.yml", ".github/scripts/**"]
 
 permissions:
   contents: read
@@ -35,3 +35,6 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" aquasec/trivy:latest config \
             --helm-set image.tag=ci --severity HIGH,CRITICAL --exit-code 1 /repo/helm/website
+
+      - name: Gerbang 4 - replicas tidak boleh ditulis saat HPA aktif
+        run: .github/scripts/cek-replicas.sh helm/website
