@@ -4,9 +4,9 @@
 ![Secrets](https://github.com/Bram-02/devops-website-bram/actions/workflows/secrets.yml/badge.svg)
 ![Helm chart](https://github.com/Bram-02/devops-website-bram/actions/workflows/helm.yml/badge.svg)
 
-Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, jaringannya dibatasi NetworkPolicy (hanya Traefik yang boleh masuk, tidak ada koneksi keluar), namespace-nya hanya menerima pod yang memenuhi standar Pod Security *restricted*, isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
+Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, jaringannya dibatasi NetworkPolicy (hanya Traefik yang boleh masuk, tidak ada koneksi keluar), namespace-nya hanya menerima pod yang memenuhi standar Pod Security *restricted*, deploy memakai ServiceAccount berhak minimum (bukan admin cluster), isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, website diperiksa dari luar oleh blackbox exporter dengan alert ketika mati atau sertifikat hampir habis, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
 
-> **English summary:** End-to-end DevOps project. Every `git push` runs a Gitleaks secret scan; pushes that change the application run a GitHub Actions pipeline (Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Deploys use the tag of the last commit that touched `app/`, so documentation or manifest changes never rebuild the image or restart pods, and the playbook uses `kubectl diff` to report real changes only and to repair drift. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). NetworkPolicies deny all traffic by default: only the Traefik ingress controller may reach the pods, and the pods cannot open outbound connections. Pod Security Admission enforces the *restricted* standard (version pinned) on the namespace. The same manifests are packaged as a Helm chart (HPA, PDB and NetworkPolicy can be toggled per environment), validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, a Trivy config scan, and a regression test that the Deployment never sets replicas while the HPA is enabled), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
+> **English summary:** End-to-end DevOps project. Every `git push` runs a Gitleaks secret scan; pushes that change the application run a GitHub Actions pipeline (Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Deploys use the tag of the last commit that touched `app/`, so documentation or manifest changes never rebuild the image or restart pods, and the playbook uses `kubectl diff` to report real changes only and to repair drift. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). NetworkPolicies deny all traffic by default: only the Traefik ingress controller may reach the pods, and the pods cannot open outbound connections. Pod Security Admission enforces the *restricted* standard (version pinned) on the namespace. Deploys run as a least-privilege ServiceAccount (namespace-scoped RBAC, 24-hour token) instead of a cluster admin, while the namespace, PSA labels and NetworkPolicies are owned by a separate platform playbook. The same manifests are packaged as a Helm chart (HPA, PDB and NetworkPolicy can be toggled per environment), validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, a Trivy config scan, and a regression test that the Deployment never sets replicas while the HPA is enabled), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code; a blackbox exporter probes the site over HTTPS with alert rules for downtime and certificate expiry, verified by a simulated outage (alert fired about 1 minute after the site went down). An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
 
 **Penyusun:** Bram Naibaho, D3 Teknologi Komputer, Institut Teknologi Del
 
@@ -31,8 +31,8 @@ flowchart TB
 
     subgraph CD["Deploy dan pemantauan"]
         direction LR
-        ans["Ansible deploy.yml<br/>atau Helm chart"] --> k3s["Kubernetes (k3s)<br/>probe, ConfigMap, HPA, PDB,<br/>NetworkPolicy, PSA restricted"]
-        k3s --> mon["Prometheus<br/>+ Grafana"]
+        ans["Ansible deploy.yml (akun deployer)<br/>atau Helm chart"] --> k3s["Kubernetes (k3s)<br/>probe, ConfigMap, HPA, PDB,<br/>NetworkPolicy, PSA restricted, RBAC"]
+        k3s --> mon["Prometheus + Grafana<br/>blackbox, alert"]
     end
 
     reg --> ans
@@ -59,7 +59,8 @@ flowchart TB
 | Admission | Pod Security Admission | Namespace `restricted` (enforce, warn, audit, versi dikunci v1.37): pod root atau tanpa seccomp ditolak API server |
 | Jaringan | NetworkPolicy | Tolak semua secara default; hanya Traefik yang boleh masuk ke port 8080, pod tidak boleh membuka koneksi keluar |
 | Paket | Helm, Argo CD | Chart 0.3.0 dengan HPA, PDB, dan NetworkPolicy yang bisa dimatikan per lingkungan; riwayat revisi dan rollback; 4 gerbang CI; bisa di-deploy GitOps oleh Argo CD |
-| Monitoring | Prometheus, node-exporter, Grafana | Data source dan dashboard dipasang otomatis dari file |
+| Hak akses | RBAC, ServiceAccount | Deploy memakai akun `deployer` yang hanya mengelola objek aplikasi di namespace `website`, token 24 jam |
+| Monitoring | Prometheus, node-exporter, Grafana, blackbox exporter | Data source dan dashboard dari file; probe HTTPS dari luar dengan alert `WebsiteMati` dan `SertifikatHampirHabis` |
 | Infrastruktur | OpenTofu, OpenStack | Contoh membuat instance di private cloud dari kode |
 
 ---
@@ -74,6 +75,7 @@ flowchart TB
 | Temuan konfigurasi Dockerfile | 2 | 0 | `USER` non-root dan `HEALTHCHECK` |
 | Temuan konfigurasi Kubernetes | 19 | 1 | securityContext, batas CPU/RAM, namespace sendiri |
 | Temuan HIGH/CRITICAL di Helm chart | - | 0 | Diperiksa Trivy di workflow Helm chart setiap ada perubahan chart |
+| Hak kunci deploy | Admin cluster (`system:masters`) | Hanya namespace `website`, tanpa Secret, NetworkPolicy, dan Namespace | Role `deployer`; diuji dengan `kubectl auth can-i --as` dan percobaan apply yang ditolak |
 | Pod yang melanggar standar restricted | Diterima | Ditolak | Pod Security Admission; diuji dengan pod dan Deployment busybox biasa |
 | Akses jaringan ke pod website | Semua pod di cluster | Hanya Traefik | NetworkPolicy; diuji dengan pod dari namespace lain dan pod yang menyamar dengan label Traefik |
 
@@ -95,16 +97,21 @@ Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkun
 │   ├── Dockerfile                  # nginx tanpa root, port 8080, HEALTHCHECK
 │   └── index.html
 ├── k8s/
-│   ├── website.yaml.j2             # Deployment, Service, ConfigMap, Middleware, Ingress + TLS, HPA, PDB, NetworkPolicy
+│   ├── website.yaml.j2             # Lapisan aplikasi (deployer): Deployment, Service, ConfigMap, Middleware, Ingress + TLS, HPA, PDB
+│   ├── namespace-website.yaml      # Lapisan platform (admin): Namespace + label PSA, NetworkPolicy
+│   ├── rbac.yaml                   # ServiceAccount, Role, RoleBinding deployer
 │   └── cluster-issuer.yaml         # ClusterIssuer cert-manager (CA lab)
 ├── helm/website/                   # Helm chart 0.3.0: Deployment, Service, ConfigMap, Ingress, HPA, PDB, NetworkPolicy
 ├── ansible/
 │   ├── inventory.ini
-│   ├── platform.yml                # Lapisan platform: cert-manager, CA lab, ClusterIssuer
-│   └── deploy.yml                  # Lapisan aplikasi: nyalakan k3s, isi template, kubectl diff, apply bila beda, tunggu rollout
+│   ├── platform.yml                # Lapisan platform (admin): cert-manager, CA lab, ClusterIssuer, namespace, NetworkPolicy, RBAC
+│   ├── token-deployer.yml          # Menerbitkan kubeconfig deployer dengan token 24 jam
+│   └── deploy.yml                  # Lapisan aplikasi (deployer): isi template, kubectl diff, apply bila beda, tunggu rollout
 ├── monitoring/
-│   ├── compose.yaml                # node-exporter, Prometheus, Grafana
-│   ├── prometheus.yml
+│   ├── compose.yaml                # node-exporter, Prometheus, Grafana, blackbox exporter
+│   ├── prometheus.yml              # Target scrape, probe HTTPS (relabeling ke blackbox), file aturan
+│   ├── blackbox.yml                # Modul https_website: wajib HTTPS 200, TLS diverifikasi dengan CA lab
+│   ├── alerts.yml                  # Alert WebsiteMati dan SertifikatHampirHabis
 │   └── grafana/                    # Data source dan dashboard sebagai kode
 └── infra/opentofu-openstack/       # Contoh instance OpenStack dengan OpenTofu
 ```
@@ -141,11 +148,21 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 365 \
 chmod 600 ca.key
 ```
 
-Pasang cert-manager, Secret CA, dan ClusterIssuer (idempoten):
+Pasang cert-manager, Secret CA, ClusterIssuer, namespace `website` (label PSA, NetworkPolicy), dan RBAC `deployer` dengan akun admin (idempoten), lalu terbitkan kubeconfig `deployer`:
 
 ```bash
 cd ansible
-ansible-playbook -i inventory.ini platform.yml
+ansible-playbook -i inventory.ini platform.yml -K
+ansible-playbook -i inventory.ini token-deployer.yml      # ~/.kube/deployer, token 24 jam
+```
+
+Token `deployer` kedaluwarsa setelah 24 jam. Jika deploy gagal dengan `Unauthorized`, jalankan lagi `token-deployer.yml`. Kunci ini hanya bisa mengelola objek aplikasi di namespace `website`:
+
+```bash
+SA=system:serviceaccount:website:deployer
+kubectl auth can-i patch deployments -n website --as=$SA        # yes
+kubectl auth can-i get secrets -n website --as=$SA              # no
+kubectl auth can-i delete networkpolicies -n website --as=$SA   # no
 ```
 
 Agar browser Windows percaya, impor `ca.crt` (bukan `ca.key`) ke daftar CA akun Windows, dan cocokkan thumbprint dengan `openssl x509 -in ~/lab-ca/ca.crt -noout -fingerprint -sha1` sebelum menyetujui:
@@ -254,7 +271,15 @@ docker compose up -d
 ```
 
 - Grafana: `http://localhost:3000` (user `admin`), dashboard **Node Exporter Full** langsung tersedia
-- Prometheus: `http://localhost:9090/targets`
+- Prometheus: `http://localhost:9090/targets`, aturan alert di `http://localhost:9090/alerts`
+
+Blackbox exporter memeriksa `https://website.bram.test/` dari luar (lewat `host-gateway`, sertifikat diverifikasi dengan `~/lab-ca/ca.crt`). Periksa konfigurasi sebelum dijalankan, lalu uji alert dengan mematikan website sementara:
+
+```bash
+docker run --rm -v "$PWD":/cfg:ro --entrypoint promtool prom/prometheus:latest check config /cfg/prometheus.yml
+kubectl scale deployment website -n website --replicas=0    # WebsiteMati: pending, lalu firing setelah 1 menit
+kubectl scale deployment website -n website --replicas=2    # alert kembali inactive
+```
 
 ### 6. Infrastruktur OpenStack (opsional)
 
@@ -286,6 +311,8 @@ tofu apply
 - **Idempotensi yang jujur.** `deploy.yml` menjalankan `kubectl diff` dulu: kode 0 berarti apply dilewati (`changed=0`), kode 1 berarti perbedaan dicetak ke log lalu di-apply. Perubahan manual di cluster (drift) terdeteksi dan dipulihkan.
 - **Pod Security Admission dengan versi dikunci.** Namespace diberi label `enforce`, `warn`, dan `audit` = `restricted`, semuanya `v1.37`, supaya upgrade cluster tidak mengubah aturan diam-diam. `enforce` hanya memeriksa Pod: Deployment yang melanggar tetap diterima tetapi `0/1` dengan event `FailedCreate`, sehingga `warn` dipasang agar masalahnya terlihat saat apply.
 - **Uji regresi yang diuji.** Gerbang 4 (`cek-replicas.sh`) dijalankan terhadap chart yang benar (lulus) dan salinan chart yang sengaja dirusak (gagal), sehingga terbukti bisa menangkap kesalahan.
+- **Deploy dengan hak minimum.** Pipeline deploy memakai ServiceAccount `deployer` (Role di namespace `website`), bukan `system:masters` yang bisa menghapus `kube-system`. Pagar keamanan (Namespace, label PSA, NetworkPolicy, RBAC) dimiliki lapisan platform dan bahkan tidak bisa dibaca `deployer`, sehingga kunci deploy yang bocor tidak bisa melonggarkannya. Token berumur 24 jam dan diterbitkan ulang dengan `token-deployer.yml`; kesiapan cluster dicek lewat `/readyz` yang tidak butuh hak atas node.
+- **Alert dari sudut pandang pengunjung.** Blackbox exporter memeriksa HTTPS, kode 200, dan masa berlaku sertifikat. `WebsiteMati` memakai `for: 1m` agar gangguan sesaat tidak memicu alert palsu; pada uji mati-pulih alert menyala sekitar 1 menit setelah website mati dan padam saat pulih.
 - **Platform terpisah dari aplikasi.** `platform.yml` (cert-manager, CA, ClusterIssuer) jarang berubah, sedangkan `deploy.yml` (website) sering berubah. Keduanya idempoten: run kedua `changed=0`.
 - **Semua sebagai kode.** Manifest, playbook, konfigurasi monitoring, data source, dan dashboard Grafana disimpan di Git; rahasia tidak.
 
@@ -308,6 +335,8 @@ tofu apply
 | Commit README memicu build image dan rolling update | CI berjalan di setiap push dan deploy memakai tag HEAD | `paths` di `ci.yml`, Gitleaks dipisah ke `secrets.yml`, tag deploy dari commit terakhir yang mengubah `app/` |
 | Playbook selalu `changed=1` | `kubectl apply` selalu melaporkan PDB `configured` (selector memakai patchStrategy replace), padahal `resourceVersion` tidak berubah | `kubectl diff` menentukan ada tidaknya perubahan |
 | Deployment uji `0/1` tanpa pod | Pod Security Admission menolak pod busybox; `enforce` tidak memeriksa Deployment | Lihat event `FailedCreate` di ReplicaSet; label `warn` memberi peringatan saat apply |
+| kubectl untuk k3s rusak setelah latihan kind | kind menulis ke `~/.kube/config` yang sama | `kubeconfig_path` kind dipisah ke file sendiri; `md5sum ~/.kube/config` sama sebelum dan sesudah |
+| `kubectl scale` ditolak untuk `deployer` | Role memberi `deployments`, bukan sub-resource `deployments/scale` | Scale manual dilakukan admin; deploy tetap lewat `apply` |
 | Instance OpenStack tidak bisa menyala | Virtualisasi bersarang tidak tersedia setelah WSL2 aktif | Nova diubah ke mode QEMU dengan playbook Ansible; latihan memakai image CirrOS yang kecil |
 
 ---
