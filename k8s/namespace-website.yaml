@@ -1,0 +1,55 @@
+# Lapisan platform: diterapkan admin lewat ansible/platform.yml, bukan oleh deployer.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: website
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.37
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.37
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.37
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tolak-semua-masuk
+  namespace: website
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: izinkan-traefik
+  namespace: website
+spec:
+  podSelector:
+    matchLabels:
+      app: website
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tolak-semua-keluar
+  namespace: website
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress

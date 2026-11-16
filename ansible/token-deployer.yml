@@ -1,0 +1,38 @@
+- name: Terbitkan kubeconfig deployer (token berumur pendek)
+  hosts: k3s
+  vars:
+    durasi_token: 24h
+    tujuan: "{{ lookup('env','HOME') }}/.kube/deployer"
+  environment:
+    KUBECONFIG: "{{ lookup('env','HOME') }}/.kube/config"
+  tasks:
+    - name: Buat kubeconfig deployer dengan token baru
+      ansible.builtin.shell: |
+        set -euo pipefail
+        baru="{{ tujuan }}.baru"
+        rm -f "$baru"
+        token=$(kubectl create token deployer -n website --duration={{ durasi_token }})
+        server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+        ca=$(mktemp)
+        kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "$ca"
+        KUBECONFIG="$baru" kubectl config set-cluster k3s --server="$server" --certificate-authority="$ca" --embed-certs=true > /dev/null
+        KUBECONFIG="$baru" kubectl config set-credentials deployer --token="$token" > /dev/null
+        KUBECONFIG="$baru" kubectl config set-context deployer --cluster=k3s --user=deployer --namespace=website > /dev/null
+        KUBECONFIG="$baru" kubectl config use-context deployer > /dev/null
+        chmod 600 "$baru"
+        mv "$baru" "{{ tujuan }}"
+        rm -f "$ca"
+      args:
+        executable: /bin/bash
+      changed_when: true
+      no_log: true
+
+    - name: Uji identitas kubeconfig baru
+      ansible.builtin.command: kubectl --kubeconfig {{ tujuan }} auth whoami -o jsonpath={.status.userInfo.username}
+      register: siapa
+      changed_when: false
+      failed_when: siapa.stdout != 'system:serviceaccount:website:deployer'
+
+    - name: Tampilkan identitas
+      ansible.builtin.debug:
+        msg: "Kubeconfig deployer siap: {{ siapa.stdout }} (berlaku {{ durasi_token }})"

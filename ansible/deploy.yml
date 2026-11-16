@@ -2,8 +2,9 @@
   hosts: k3s
   vars:
     image_tag: latest
+    kubeconfig_deployer: "{{ lookup('env', 'HOME') }}/.kube/deployer"
   environment:
-    KUBECONFIG: "{{ lookup('env', 'HOME') }}/.kube/config"
+    KUBECONFIG: "{{ kubeconfig_deployer }}"
   tasks:
     - name: Pastikan k3s menyala
       become: true
@@ -11,8 +12,22 @@
         name: k3s
         state: started
 
-    - name: Tunggu node siap
-      ansible.builtin.command: kubectl wait --for=condition=Ready node --all --timeout=120s
+    - name: Periksa kubeconfig deployer
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_deployer }}"
+      register: kunci_deployer
+
+    - name: Hentikan kalau kubeconfig deployer belum ada
+      ansible.builtin.fail:
+        msg: "Kubeconfig deployer belum ada. Jalankan dulu: ansible-playbook -i ansible/inventory.ini ansible/token-deployer.yml"
+      when: not kunci_deployer.stat.exists
+
+    - name: Tunggu API server siap
+      ansible.builtin.command: kubectl get --raw /readyz
+      register: siap
+      until: siap.rc == 0
+      retries: 24
+      delay: 5
       changed_when: false
 
     - name: Isi template manifest dengan versi image
