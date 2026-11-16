@@ -1,0 +1,11 @@
+modules:
+  https_website:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        ca_file: /etc/blackbox/ca.crt

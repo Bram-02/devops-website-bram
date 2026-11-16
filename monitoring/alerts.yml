@@ -1,0 +1,19 @@
+groups:
+  - name: website
+    rules:
+      - alert: WebsiteMati
+        expr: probe_success{job="website-https"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Website {{ $labels.instance }} tidak bisa diakses"
+          description: "Probe HTTPS gagal terus selama lebih dari 1 menit."
+      - alert: SertifikatHampirHabis
+        expr: (probe_ssl_earliest_cert_expiry{job="website-https"} - time()) / 86400 < 14
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sertifikat {{ $labels.instance }} habis dalam {{ $value | humanize }} hari"
+          description: "Periksa perpanjangan otomatis cert-manager (kubectl describe certificate -n website)."
