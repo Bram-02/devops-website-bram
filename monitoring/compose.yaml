@@ -48,6 +48,16 @@ services:
       - "website.bram.test:host-gateway"
     restart: unless-stopped
 
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ${HOME}/.secrets/telegram_bot_token:/etc/alertmanager/telegram_bot_token:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
 volumes:
   prometheus-data:
   grafana-data:
