@@ -54,3 +54,44 @@ jobs:
           docker tag $IMAGE:${{ github.sha }} $IMAGE:latest
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
+
+  promosi-dev:
+    needs: build-scan-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Ambil repo GitOps
+        uses: actions/checkout@v5
+        with:
+          repository: Bram-02/kubernetes-iac-gitops-lab
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Ganti tag di overlay dev lalu buka Pull Request
+        working-directory: gitops
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          berkas=week11/kustomize/website/overlays/dev/kustomization.yaml
+          cabang="rilis-dev-${TAG::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$cabang"
+          sed -i -E "s/(newTag: ).*/\1${TAG}/" "$berkas"
+          if git diff --quiet; then
+            echo "Tag dev sudah ${TAG}; tidak perlu PR."
+            exit 0
+          fi
+          git commit -am "Dev: rilis website ${TAG::7} (otomatis dari CI)"
+          git push origin "$cabang"
+          gh pr create --repo Bram-02/kubernetes-iac-gitops-lab --base main --head "$cabang" \
+            --title "Dev: rilis website ${TAG::7}" \
+            --body "PR otomatis dari CI devops-website-bram.
+          - Image: ghcr.io/bram-02/devops-website-bram:${TAG}
+          - Lolos Gitleaks, Trivy, dan uji halaman
+          - Run CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Review lalu merge untuk men-deploy ke dev. Prod tidak berubah."
