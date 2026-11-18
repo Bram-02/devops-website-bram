@@ -27,20 +27,19 @@ jobs:
         with:
           fetch-depth: 0
 
-
       - name: Build image
-        run: docker build -t $IMAGE:${{ github.sha }} ./app
+        run: docker build -t "$IMAGE:${{ github.sha }}" ./app
 
       - name: Gerbang 2 - cek celah (Trivy)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image --timeout 15m --scanners vuln \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            $IMAGE:${{ github.sha }}
+            "$IMAGE:${{ github.sha }}"
 
       - name: Gerbang 3 - uji halaman
         run: |
-          docker run -d --name uji -p 8080:8080 $IMAGE:${{ github.sha }}
+          docker run -d --name uji -p 8080:8080 "$IMAGE:${{ github.sha }}"
           sleep 3
           curl -sf http://localhost:8080 | grep -i "<title>"
 
@@ -51,9 +50,9 @@ jobs:
       - name: Push image ke GHCR
         if: github.event_name == 'push'
         run: |
-          docker tag $IMAGE:${{ github.sha }} $IMAGE:latest
-          docker push $IMAGE:${{ github.sha }}
-          docker push $IMAGE:latest
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
 
   promosi-dev:
     needs: build-scan-push
@@ -94,4 +93,5 @@ jobs:
           - Image: ghcr.io/bram-02/devops-website-bram:${TAG}
           - Lolos Gitleaks, Trivy, dan uji halaman
           - Run CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
           Review lalu merge untuk men-deploy ke dev. Prod tidak berubah."
