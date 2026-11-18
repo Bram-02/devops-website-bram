@@ -4,9 +4,9 @@
 ![Secrets](https://github.com/Bram-02/devops-website-bram/actions/workflows/secrets.yml/badge.svg)
 ![Helm chart](https://github.com/Bram-02/devops-website-bram/actions/workflows/helm.yml/badge.svg)
 
-Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, jaringannya dibatasi NetworkPolicy (hanya Traefik yang boleh masuk, tidak ada koneksi keluar), namespace-nya hanya menerima pod yang memenuhi standar Pod Security *restricted*, deploy memakai ServiceAccount berhak minimum (bukan admin cluster), isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, website diperiksa dari luar oleh blackbox exporter dengan alert ketika mati atau sertifikat hampir habis, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
+Proyek DevOps end-to-end: sebuah website sederhana yang dibangun, diperiksa keamanannya, disimpan di registry, lalu di-deploy ke Kubernetes secara otomatis dan bisa di-rollback dengan satu perintah. Website dibuka lewat HTTPS di Ingress (Traefik) dengan sertifikat yang diterbitkan dan diperpanjang otomatis oleh cert-manager (akses HTTP dialihkan ke HTTPS), dijaga readiness dan liveness probe, jumlah pod menyesuaikan beban dengan HPA, tetap tersedia saat perawatan node berkat PodDisruptionBudget, jaringannya dibatasi NetworkPolicy (hanya Traefik yang boleh masuk, tidak ada koneksi keluar), namespace-nya hanya menerima pod yang memenuhi standar Pod Security *restricted*, deploy memakai ServiceAccount berhak minimum (bukan admin cluster), isi konfigurasinya diambil dari ConfigMap, dan seluruh manifest juga tersedia sebagai Helm chart yang diperiksa di CI dan bisa di-deploy secara GitOps oleh Argo CD. Kondisi server dipantau dengan Prometheus dan Grafana, website diperiksa dari luar oleh blackbox exporter dengan alert ketika mati atau sertifikat hampir habis yang dikirim Alertmanager ke Telegram, dan contoh infrastruktur private cloud ditulis dengan OpenTofu.
 
-> **English summary:** End-to-end DevOps project. Every `git push` runs a Gitleaks secret scan; pushes that change the application run a GitHub Actions pipeline (Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. Deploys use the tag of the last commit that touched `app/`, so documentation or manifest changes never rebuild the image or restart pods, and the playbook uses `kubectl diff` to report real changes only and to repair drift. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). NetworkPolicies deny all traffic by default: only the Traefik ingress controller may reach the pods, and the pods cannot open outbound connections. Pod Security Admission enforces the *restricted* standard (version pinned) on the namespace. Deploys run as a least-privilege ServiceAccount (namespace-scoped RBAC, 24-hour token) instead of a cluster admin, while the namespace, PSA labels and NetworkPolicies are owned by a separate platform playbook. The same manifests are packaged as a Helm chart (HPA, PDB and NetworkPolicy can be toggled per environment), validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, a Trivy config scan, and a regression test that the Deployment never sets replicas while the HPA is enabled), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code; a blackbox exporter probes the site over HTTPS with alert rules for downtime and certificate expiry, verified by a simulated outage (alert fired about 1 minute after the site went down). An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
+> **English summary:** End-to-end DevOps project. Every `git push` runs a Gitleaks secret scan; pushes that change the application run a GitHub Actions pipeline (Trivy vulnerability scan, page test) before the image is pushed to GitHub Container Registry, tagged with the commit SHA. After a successful build, CI opens a pull request in the [GitOps repository](https://github.com/Bram-02/kubernetes-iac-gitops-lab) that bumps the dev image tag (a fine-grained, single-repository token), so a human only reviews and merges. Deploys use the tag of the last commit that touched `app/`, so documentation or manifest changes never rebuild the image or restart pods, and the playbook uses `kubectl diff` to report real changes only and to repair drift. Ansible deploys a specific version to a hardened Kubernetes (k3s) deployment with rolling updates and one-command rollback, readiness/liveness probes, a ConfigMap, and a Traefik Ingress served over HTTPS with certificates issued and renewed automatically by cert-manager (from a name-constrained lab CA, installed by a separate idempotent platform playbook); plain HTTP is redirected with a 301. A HorizontalPodAutoscaler scales the website from 2 to 5 pods on CPU (verified with a load test), and a PodDisruptionBudget keeps at least one pod serving during voluntary disruptions (verified through the Eviction API). NetworkPolicies deny all traffic by default: only the Traefik ingress controller may reach the pods, and the pods cannot open outbound connections. Pod Security Admission enforces the *restricted* standard (version pinned) on the namespace. Deploys run as a least-privilege ServiceAccount (namespace-scoped RBAC, 24-hour token) instead of a cluster admin, while the namespace, PSA labels and NetworkPolicies are owned by a separate platform playbook. The same manifests are packaged as a Helm chart (HPA, PDB and NetworkPolicy can be toggled per environment), validated in a separate CI workflow (helm lint, a regression test that the chart refuses to render without an image tag, a Trivy config scan, and a regression test that the Deployment never sets replicas while the HPA is enabled), and is also deployed GitOps-style by Argo CD using an app-of-apps pattern. Monitoring (Prometheus, node-exporter, Grafana) and its dashboards are provisioned as code; a blackbox exporter probes the site over HTTPS with alert rules for downtime and certificate expiry, verified by a simulated outage (alert fired about 1 minute after the site went down), and Alertmanager sends firing and resolved notifications to Telegram with the bot token and chat ID kept outside the repository. An OpenTofu example provisions an instance on a private OpenStack (DevStack) cloud.
 
 **Penyusun:** Bram Naibaho, D3 Teknologi Komputer, Institut Teknologi Del
 
@@ -25,7 +25,9 @@ flowchart TB
         direction LR
         b["Build image"] --> g2["Gerbang 2<br/>Trivy: cek celah"]
         g2 --> g3["Gerbang 3<br/>uji halaman"]
+        g3 --> pd["promosi-dev<br/>buka PR tag dev"]
     end
+    pd -.PR otomatis.-> gitops[("Repo GitOps<br/>kubernetes-iac-gitops-lab")]
 
     CI --> reg[("GHCR<br/>tag = commit SHA")]
 
@@ -33,6 +35,7 @@ flowchart TB
         direction LR
         ans["Ansible deploy.yml (akun deployer)<br/>atau Helm chart"] --> k3s["Kubernetes (k3s)<br/>probe, ConfigMap, HPA, PDB,<br/>NetworkPolicy, PSA restricted, RBAC"]
         k3s --> mon["Prometheus + Grafana<br/>blackbox, alert"]
+        mon --> am["Alertmanager"] --> tg["Telegram"]
     end
 
     reg --> ans
@@ -45,7 +48,7 @@ flowchart TB
 | Tahap | Alat | Fungsi |
 | --- | --- | --- |
 | Kode | Git, GitHub | Semua kode, konfigurasi, dan dashboard disimpan di repository ini |
-| CI | GitHub Actions | Cek rahasia di setiap `git push`; build dan uji image hanya saat kode aplikasi berubah |
+| CI | GitHub Actions | Cek rahasia di setiap `git push`; build dan uji image hanya saat kode aplikasi berubah; setelah lolos, membuka PR otomatis ke repo GitOps untuk lingkungan dev |
 | Keamanan | Gitleaks, Trivy | Pipeline gagal kalau ada rahasia bocor atau celah HIGH/CRITICAL yang bisa diperbaiki |
 | Container | Docker, nginx-unprivileged | Website berjalan tanpa root, di port 8080, dengan HEALTHCHECK |
 | Registry | GitHub Container Registry | Image disimpan dengan tag `latest` dan tag commit SHA |
@@ -60,7 +63,7 @@ flowchart TB
 | Jaringan | NetworkPolicy | Tolak semua secara default; hanya Traefik yang boleh masuk ke port 8080, pod tidak boleh membuka koneksi keluar |
 | Paket | Helm, Argo CD | Chart 0.3.0 dengan HPA, PDB, dan NetworkPolicy yang bisa dimatikan per lingkungan; riwayat revisi dan rollback; 4 gerbang CI; bisa di-deploy GitOps oleh Argo CD |
 | Hak akses | RBAC, ServiceAccount | Deploy memakai akun `deployer` yang hanya mengelola objek aplikasi di namespace `website`, token 24 jam |
-| Monitoring | Prometheus, node-exporter, Grafana, blackbox exporter | Data source dan dashboard dari file; probe HTTPS dari luar dengan alert `WebsiteMati` dan `SertifikatHampirHabis` |
+| Monitoring | Prometheus, node-exporter, Grafana, blackbox exporter | Data source dan dashboard dari file; probe HTTPS dari luar dengan alert `WebsiteMati` dan `SertifikatHampirHabis`, dikirim Alertmanager ke Telegram |
 | Infrastruktur | OpenTofu, OpenStack | Contoh membuat instance di private cloud dari kode |
 
 ---
@@ -89,7 +92,7 @@ Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkun
 .
 ├── .github/workflows/
 │   ├── secrets.yml                 # Gitleaks di setiap push
-│   ├── ci.yml                      # Hanya saat app/ berubah: build, Trivy, uji, push ke GHCR
+│   ├── ci.yml                      # Hanya saat app/ berubah: build, Trivy, uji, push ke GHCR, lalu PR otomatis ke repo GitOps
 │   └── helm.yml                    # Gerbang chart: helm lint, tag wajib, Trivy config, uji replicas
 ├── .github/scripts/
 │   └── cek-replicas.sh             # Uji regresi: replicas tidak ditulis saat HPA aktif (bisa dijalankan lokal)
@@ -112,6 +115,8 @@ Sisa satu temuan (KSV-0125, registry publik) diterima secara sadar untuk lingkun
 │   ├── prometheus.yml              # Target scrape, probe HTTPS (relabeling ke blackbox), file aturan
 │   ├── blackbox.yml                # Modul https_website: wajib HTTPS 200, TLS diverifikasi dengan CA lab
 │   ├── alerts.yml                  # Alert WebsiteMati dan SertifikatHampirHabis
+│   ├── alertmanager.yml.tmpl       # Notifikasi Telegram; chat_id disisipkan saat render (alertmanager.yml diabaikan Git)
+│   ├── siapkan-alertmanager.sh     # Membuat alertmanager.yml dari template dan ~/.secrets
 │   └── grafana/                    # Data source dan dashboard sebagai kode
 └── infra/opentofu-openstack/       # Contoh instance OpenStack dengan OpenTofu
 ```
@@ -261,6 +266,8 @@ Berbeda dengan manifest Ansible yang mengunci seluruh namespace, NetworkPolicy d
 
 Chart yang sama di-deploy oleh Argo CD dari repository ini, dengan pola *app of apps* (Application `root` dipasang OpenTofu, Application lain cukup berupa file YAML di Git). Contohnya ada di repository [kubernetes-iac-gitops-lab](https://github.com/Bram-02/kubernetes-iac-gitops-lab), folder `week11/`.
 
+Setelah image lolos semua gerbang, job `promosi-dev` di `ci.yml` meng-clone repo GitOps itu, mengganti `newTag` di overlay dev, lalu membuka pull request (commit atas nama `github-actions[bot]`, deskripsi berisi image dan tautan run CI). Manusia cukup me-review dan merge; promosi ke prod tetap lewat PR terpisah dengan tag yang sama. Job ini memakai secret `GITOPS_TOKEN`, yaitu *fine-grained personal access token* yang hanya berlaku untuk repo GitOps, hanya izin Contents dan Pull requests, dan kedaluwarsa dalam 30 hari.
+
 ### 5. Monitoring
 
 ```bash
@@ -279,6 +286,19 @@ Blackbox exporter memeriksa `https://website.bram.test/` dari luar (lewat `host-
 docker run --rm -v "$PWD":/cfg:ro --entrypoint promtool prom/prometheus:latest check config /cfg/prometheus.yml
 kubectl scale deployment website -n website --replicas=0    # WebsiteMati: pending, lalu firing setelah 1 menit
 kubectl scale deployment website -n website --replicas=2    # alert kembali inactive
+```
+
+Alertmanager mengirim notifikasi ke Telegram (🔥 saat menyala, ✅ saat pulih). Token bot dan chat ID disimpan di `~/.secrets` (izin 700), bukan di repository; yang di-commit hanya template:
+
+```bash
+mkdir -p ~/.secrets && chmod 700 ~/.secrets
+read -s -p "Token bot dari @BotFather: " T; printf '%s' "$T" > ~/.secrets/telegram_bot_token; unset T; echo
+chmod 644 ~/.secrets/telegram_bot_token     # dibaca container sebagai user nobody
+read -p "Chat ID: " C; printf '%s' "$C" > ~/.secrets/telegram_chat_id; unset C
+./siapkan-alertmanager.sh                  # membuat alertmanager.yml (diabaikan Git)
+docker compose up -d
+docker exec alertmanager amtool alert add alertname=Uji severity=info instance=uji \
+  --annotation=summary="Alert uji" --alertmanager.url=http://localhost:9093   # uji format pesan tanpa mematikan website
 ```
 
 ### 6. Infrastruktur OpenStack (opsional)
@@ -313,6 +333,8 @@ tofu apply
 - **Uji regresi yang diuji.** Gerbang 4 (`cek-replicas.sh`) dijalankan terhadap chart yang benar (lulus) dan salinan chart yang sengaja dirusak (gagal), sehingga terbukti bisa menangkap kesalahan.
 - **Deploy dengan hak minimum.** Pipeline deploy memakai ServiceAccount `deployer` (Role di namespace `website`), bukan `system:masters` yang bisa menghapus `kube-system`. Pagar keamanan (Namespace, label PSA, NetworkPolicy, RBAC) dimiliki lapisan platform dan bahkan tidak bisa dibaca `deployer`, sehingga kunci deploy yang bocor tidak bisa melonggarkannya. Token berumur 24 jam dan diterbitkan ulang dengan `token-deployer.yml`; kesiapan cluster dicek lewat `/readyz` yang tidak butuh hak atas node.
 - **Alert dari sudut pandang pengunjung.** Blackbox exporter memeriksa HTTPS, kode 200, dan masa berlaku sertifikat. `WebsiteMati` memakai `for: 1m` agar gangguan sesaat tidak memicu alert palsu; pada uji mati-pulih alert menyala sekitar 1 menit setelah website mati dan padam saat pulih.
+- **Mesin mengusulkan, manusia memutuskan.** CI tidak men-deploy langsung ke cluster dan tidak memegang kredensial cluster; ia hanya membuka PR ke repo GitOps dengan token berhak minimum. Merge adalah gerbang deploy, dan riwayat Git membedakan commit otomatis (`github-actions[bot]`) dari keputusan manusia.
+- **Notifikasi tanpa rahasia di Git.** Token bot dibaca Alertmanager lewat `bot_token_file`; chat ID disisipkan saat render. `repeat_interval` 4 jam mencegah *alert fatigue*, `send_resolved` memberi kabar saat pulih.
 - **Platform terpisah dari aplikasi.** `platform.yml` (cert-manager, CA, ClusterIssuer) jarang berubah, sedangkan `deploy.yml` (website) sering berubah. Keduanya idempoten: run kedua `changed=0`.
 - **Semua sebagai kode.** Manifest, playbook, konfigurasi monitoring, data source, dan dashboard Grafana disimpan di Git; rahasia tidak.
 
@@ -337,6 +359,10 @@ tofu apply
 | Deployment uji `0/1` tanpa pod | Pod Security Admission menolak pod busybox; `enforce` tidak memeriksa Deployment | Lihat event `FailedCreate` di ReplicaSet; label `warn` memberi peringatan saat apply |
 | kubectl untuk k3s rusak setelah latihan kind | kind menulis ke `~/.kube/config` yang sama | `kubeconfig_path` kind dipisah ke file sendiri; `md5sum ~/.kube/config` sama sebelum dan sesudah |
 | `kubectl scale` ditolak untuk `deployer` | Role memberi `deployments`, bukan sub-resource `deployments/scale` | Scale manual dilakukan admin; deploy tetap lewat `apply` |
+| Job `promosi-dev` gagal `Bad credentials` | Isi secret `GITOPS_TOKEN` bukan token yang utuh | Token dibuat ulang, secret diperbarui, *Re-run failed jobs* |
+| Token bot Telegram sempat terlihat di screenshot | Pesan @BotFather dipotret utuh | Token dicabut dengan `/revoke`, token baru dibaca dengan `read -s` |
+| Pemantauan CI lewat API berhenti dengan `KeyError` | Batas 60 permintaan per jam untuk API tanpa token | Skrip menangani pesan error; pemantauan lewat halaman Actions |
+| `git push` timeout di port 22 | Jaringan menghambat SSH port 22 | SSH GitHub lewat `ssh.github.com` port 443 di `~/.ssh/config` |
 | Instance OpenStack tidak bisa menyala | Virtualisasi bersarang tidak tersedia setelah WSL2 aktif | Nova diubah ke mode QEMU dengan playbook Ansible; latihan memakai image CirrOS yang kecil |
 
 ---
