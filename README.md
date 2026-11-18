@@ -259,7 +259,7 @@ Berbeda dengan manifest Ansible yang mengunci seluruh namespace, NetworkPolicy d
 
 ### 4c. Alternatif: GitOps dengan Argo CD
 
-Chart yang sama di-deploy oleh Argo CD dari repository ini, dengan pola *app of apps* (Application `root` dipasang OpenTofu, Application lain cukup berupa file YAML di Git). Contohnya ada di repository [latihan-devops](https://github.com/Bram-02/latihan-devops), folder `week11/`.
+Chart yang sama di-deploy oleh Argo CD dari repository ini, dengan pola *app of apps* (Application `root` dipasang OpenTofu, Application lain cukup berupa file YAML di Git). Contohnya ada di repository [kubernetes-iac-gitops-lab](https://github.com/Bram-02/kubernetes-iac-gitops-lab), folder `week11/`.
 
 ### 5. Monitoring
 
