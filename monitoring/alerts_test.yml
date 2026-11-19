@@ -1,0 +1,66 @@
+# Unit test aturan alert: jalankan dengan promtool test rules alerts_test.yml
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  # 1. Website mati terus: 30 detik masih pending (belum dikirim), 2 menit sudah firing.
+  - interval: 15s
+    input_series:
+      - series: 'probe_success{job="website-https", instance="https://website.bram.test/"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: WebsiteMati
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: WebsiteMati
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: website-https
+              instance: https://website.bram.test/
+            exp_annotations:
+              summary: "Website https://website.bram.test/ tidak bisa diakses"
+              description: "Probe HTTPS gagal terus selama lebih dari 1 menit."
+
+  # 2. Gangguan singkat 30 detik (misalnya rolling update) tidak boleh membangunkan orang.
+  - interval: 15s
+    input_series:
+      - series: 'probe_success{job="website-https", instance="https://website.bram.test/"}'
+        values: "1 1 0 0 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: WebsiteMati
+        exp_alerts: []
+
+  # 3. Sertifikat tinggal 10 hari: menyala setelah 10 menit, bukan sebelumnya.
+  - interval: 1m
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="website-https", instance="https://website.bram.test/"}'
+        values: "864000x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SertifikatHampirHabis
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SertifikatHampirHabis
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: website-https
+              instance: https://website.bram.test/
+            exp_annotations:
+              summary: "Sertifikat https://website.bram.test/ habis dalam 9.99 hari"
+              description: "Periksa perpanjangan otomatis cert-manager (kubectl describe certificate -n website)."
+
+  # 4. Sertifikat masih 60 hari: tidak ada alert.
+  - interval: 1m
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="website-https", instance="https://website.bram.test/"}'
+        values: "5184000x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SertifikatHampirHabis
+        exp_alerts: []
