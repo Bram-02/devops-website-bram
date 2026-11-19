@@ -2,7 +2,7 @@ groups:
   - name: website
     rules:
       - alert: WebsiteMati
-        expr: probe_success{job="website-https"} == 0
+        expr: probe_success{job="website-https"} == 0)
         for: 1m
         labels:
           severity: critical
