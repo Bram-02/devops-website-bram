@@ -21,11 +21,15 @@ echo "== 1. Prometheus dan aturan alert ($PROM)"
 docker run --rm -v "$PWD:/cfg:ro" --entrypoint promtool "$PROM" \
   check config /cfg/prometheus.yml
 
-echo "== 2. Alertmanager ($AM)"
+echo "== 2. Unit test aturan alert ($PROM)"
+docker run --rm -v "$PWD:/cfg:ro" -w /cfg --entrypoint promtool "$PROM" \
+  test rules alerts_test.yml
+
+echo "== 3. Alertmanager ($AM)"
 docker run --rm -v "$tmp:/cfg:ro" --entrypoint amtool "$AM" \
   check-config /cfg/alertmanager.yml
 
-echo "== 3. Blackbox exporter ($BB)"
+echo "== 4. Blackbox exporter ($BB)"
 docker run --rm -v "$PWD/blackbox.yml:/cfg/blackbox.yml:ro" "$BB" \
   --config.file=/cfg/blackbox.yml --config.check
 
