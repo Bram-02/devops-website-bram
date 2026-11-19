@@ -4,11 +4,22 @@ route:
   group_wait: 10s
   group_interval: 1m
   repeat_interval: 4h
+  routes:
+    # critical (website mati): langsung, berbunyi, diulang tiap 1 jam sampai pulih
+    - matchers: ['severity="critical"']
+      receiver: telegram
+      repeat_interval: 1h
+    # warning (sertifikat hampir habis): tanpa bunyi, diulang sekali sehari
+    - matchers: ['severity="warning"']
+      receiver: telegram-senyap
+      group_wait: 1m
+      repeat_interval: 24h
 
 receivers:
   - name: telegram
     telegram_configs:
-      - bot_token_file: /etc/alertmanager/telegram_bot_token
+      - &telegram
+        bot_token_file: /etc/alertmanager/telegram_bot_token
         chat_id: __CHAT_ID__
         parse_mode: HTML
         send_resolved: true
@@ -18,3 +29,8 @@ receivers:
           {{ end }}{{ else }}✅ <b>PULIH: {{ .CommonLabels.alertname }}</b>
           {{ range .Alerts }}{{ .Labels.instance }} kembali normal
           {{ end }}{{ end }}
+
+  - name: telegram-senyap
+    telegram_configs:
+      - <<: *telegram
+        disable_notifications: true
