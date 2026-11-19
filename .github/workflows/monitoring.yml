@@ -1,0 +1,21 @@
+name: Monitoring
+
+on:
+  push:
+    branches: [main]
+    paths: ["monitoring/**", ".github/workflows/monitoring.yml"]
+  pull_request:
+    paths: ["monitoring/**", ".github/workflows/monitoring.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  cek-konfigurasi:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v5
+
+      - name: Periksa Prometheus, Alertmanager, dan blackbox (versi dari compose.yaml)
+        run: monitoring/cek-konfigurasi.sh
