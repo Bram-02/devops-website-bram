@@ -29,7 +29,16 @@ echo "== 3. Alertmanager ($AM)"
 docker run --rm -v "$tmp:/cfg:ro" --entrypoint amtool "$AM" \
   check-config /cfg/alertmanager.yml
 
-echo "== 4. Blackbox exporter ($BB)"
+echo "== 4. Rute alert: severity menentukan receiver ($AM)"
+rute() {  # rute RECEIVER_YANG_DIHARAPKAN LABEL...
+  docker run --rm -v "$tmp:/cfg:ro" --entrypoint amtool "$AM" config routes test \
+    --config.file=/cfg/alertmanager.yml --verify.receivers="$1" "${@:2}"
+}
+rute telegram        alertname=WebsiteMati severity=critical
+rute telegram-senyap alertname=SertifikatHampirHabis severity=warning
+rute telegram        alertname=AlertLain severity=info    # tanpa rute khusus: jatuh ke rute induk
+
+echo "== 5. Blackbox exporter ($BB)"
 docker run --rm -v "$PWD/blackbox.yml:/cfg/blackbox.yml:ro" "$BB" \
   --config.file=/cfg/blackbox.yml --config.check
 
