@@ -1,0 +1,21 @@
+name: Ansible
+
+on:
+  push:
+    branches: [main]
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+  pull_request:
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  ansible-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v5
+
+      - name: ansible-lint (versi dikunci, profil production)
+        run: ansible/lint.sh
