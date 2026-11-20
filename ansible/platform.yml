@@ -32,9 +32,12 @@
 
     - name: Secret CA lab untuk ClusterIssuer
       ansible.builtin.shell: >
+        set -o pipefail &&
         kubectl create secret tls lab-ca -n cert-manager
         --cert={{ ca_dir }}/ca.crt --key={{ ca_dir }}/ca.key
         --dry-run=client -o yaml | kubectl apply -f -
+      args:
+        executable: /bin/bash
       register: secret_ca
       changed_when: "'created' in secret_ca.stdout or 'configured' in secret_ca.stdout"
       no_log: true

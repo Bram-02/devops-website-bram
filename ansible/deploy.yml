@@ -73,7 +73,9 @@
     - name: Pastikan sertifikat tidak hampir habis
       ansible.builtin.assert:
         that: sisa_hari | int >= batas_hari_sertifikat | int
-        fail_msg: "Sertifikat website-tls habis dalam {{ sisa_hari }} hari, batas {{ batas_hari_sertifikat }} hari ({{ sertifikat.stdout }}). Periksa: kubectl describe certificate website-tls -n website"
+        fail_msg: >-
+          Sertifikat website-tls habis dalam {{ sisa_hari }} hari, batas {{ batas_hari_sertifikat }} hari
+          ({{ sertifikat.stdout }}). Periksa: kubectl describe certificate website-tls -n website
         success_msg: "Sertifikat website-tls Ready, berlaku sampai {{ sertifikat.stdout }} ({{ sisa_hari }} hari lagi)"
 
     - name: Ambil daftar pod
