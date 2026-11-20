@@ -56,6 +56,25 @@
       ansible.builtin.command: kubectl rollout status deployment/website -n website --timeout=180s
       changed_when: false
 
+    - name: Tunggu sertifikat HTTPS siap
+      ansible.builtin.command: kubectl wait --for=condition=Ready certificate/website-tls -n website --timeout=120s
+      changed_when: false
+
+    - name: Ambil masa berlaku sertifikat
+      ansible.builtin.command: kubectl get certificate website-tls -n website -o jsonpath={.status.notAfter}
+      register: sertifikat
+      changed_when: false
+
+    - name: Hitung sisa hari sertifikat
+      ansible.builtin.set_fact:
+        sisa_hari: "{{ ((sertifikat.stdout | to_datetime('%Y-%m-%dT%H:%M:%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days }}"
+
+    - name: Pastikan sertifikat tidak hampir habis
+      ansible.builtin.assert:
+        that: sisa_hari | int >= 7
+        fail_msg: "Sertifikat website-tls habis dalam {{ sisa_hari }} hari ({{ sertifikat.stdout }}). Periksa: kubectl describe certificate website-tls -n website"
+        success_msg: "Sertifikat website-tls Ready, berlaku sampai {{ sertifikat.stdout }} ({{ sisa_hari }} hari lagi)"
+
     - name: Ambil daftar pod
       ansible.builtin.command: kubectl get pods -n website -o custom-columns=POD:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
       register: daftar_pod
