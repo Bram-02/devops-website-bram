@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Ambil kode (seluruh riwayat)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -62,7 +62,7 @@ jobs:
       contents: read
     steps:
       - name: Ambil repo GitOps
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: Bram-02/kubernetes-iac-gitops-lab
           token: ${{ secrets.GITOPS_TOKEN }}
