@@ -4,6 +4,8 @@
     image_tag: latest
     kubeconfig_deployer: "{{ lookup('env', 'HOME') }}/.kube/deployer"
     batas_hari_sertifikat: 7
+    cosign_image: ghcr.io/sigstore/cosign/cosign:v3.1.4
+    cosign_identitas: "https://github.com/Bram-02/devops-website-bram/.github/workflows/ci.yml@refs/heads/main"
   environment:
     KUBECONFIG: "{{ kubeconfig_deployer }}"
   tasks:
@@ -29,6 +31,21 @@
       until: siap.rc == 0
       retries: 24
       delay: 5
+      changed_when: false
+
+    - name: Verifikasi tanda tangan image (cosign keyless, hanya dari CI main)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - "{{ cosign_image }}"
+          - verify
+          - "ghcr.io/bram-02/devops-website-bram:{{ image_tag }}"
+          - --certificate-identity
+          - "{{ cosign_identitas }}"
+          - --certificate-oidc-issuer
+          - https://token.actions.githubusercontent.com
       changed_when: false
 
     - name: Isi template manifest dengan versi image
