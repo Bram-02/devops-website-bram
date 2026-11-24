@@ -21,6 +21,10 @@ env:
 jobs:
   build-scan-push:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # token OIDC untuk tanda tangan keyless cosign
     steps:
       - name: Ambil kode (seluruh riwayat)
         uses: actions/checkout@v7
@@ -53,6 +57,18 @@ jobs:
           docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
+
+      - name: Pasang cosign
+        if: github.event_name == 'push'
+        uses: sigstore/cosign-installer@v4
+
+      - name: Tanda tangani image (keyless, identitas workflow ini)
+        if: github.event_name == 'push'
+        run: |
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:${{ github.sha }}")
+          echo "Image yang ditandatangani: $digest"
+          cosign version 2>&1 | grep -i gitversion
+          cosign sign --yes "$digest"
 
   promosi-dev:
     needs: build-scan-push
